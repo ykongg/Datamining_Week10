@@ -1,0 +1,123 @@
+
+#####LDA topic model####
+library("Matrix")
+library("topicmodels");
+
+##########################################################################
+
+dataframe_task2<- read.csv(file="reuters.task1.csv", header = T, sep=",")
+dataframe_task2<-dataframe_task2
+#delete instances which do not have texts.
+delete_row<-c(which(dataframe_task2[,125] == ""),which(is.na(dataframe_task2[,125])))
+dataframe_task2<-dataframe_task2[-delete_row,]
+#task1.new1 will be used in task 3
+task1.new1<-as.data.frame(dataframe_task2)
+#get the last column to generate frequency matrix
+numColumn <- ncol(dataframe_task2)
+col <- dataframe_task2[,numColumn]
+vector <- VectorSource(col)
+corpus <- Corpus(vector)
+dtm <- DocumentTermMatrix(corpus)
+dtm2 <- removeSparseTerms(dtm,sparse=0.95)
+
+#to observe dtm2
+term_fre<-as.data.frame(inspect(dtm2))
+#VEM is a prparameter, set k=10 means 10 topics will be generated (default value)
+lda <- LDA(dtm, control = list(alpha = 0.1), k = 10, method = "VEM")
+# set each topic has 15 terms
+lda_terms <- terms(lda,15)
+# reverse the table into a list
+lda_terms_u <- c(lda_terms[,1], lda_terms[,2], lda_terms[,3], lda_terms[,4], lda_terms[,5], lda_terms[,6], lda_terms[,7], lda_terms[,8], lda_terms[,9], lda_terms[,10])
+# delete the repeated records
+lda_terms_u <- unique(lda_terms_u)
+#give each doc a topic(out of 10 topics)
+topics <- topics(lda)
+# topic_numbers is the number of documents
+topic_number <- length(topics)
+features <- as.data.frame(matrix(NA, topic_number, length(lda_terms_u)))
+colnames(features) <- lda_terms_u
+features_lda <- features
+
+# lda_terms_u has 64 rows, match topics to lda_terms_u. default value is 0, if it matchs up, value will be 1.
+for (l in 1:topic_number){
+  match <- match(lda_terms[,topics[l]], lda_terms_u)
+  features_lda[l, ] <- 0
+  features_lda[l, match] <- 1
+  print(l)
+}
+
+write.csv(features_lda, "task2.lda.csv", row.names = F)
+
+#######################################################################################
+
+####TF*IDF feature selection####
+
+dataframe_dtm2 <- as.data.frame(inspect(dtm2))
+dtm2_row <- nrow(dataframe_dtm2)
+dtm2_col <- ncol(dataframe_dtm2)
+tf.idf <- as.data.frame(matrix(0,dtm2_row,dtm2_col))
+#externalloop deal with the columns
+for (x in 1:dtm2_col){
+#internal loop deal with the rows
+  for (y in 1:dtm2_row){
+
+    #Calculate DF and IDF of each word, DF is the number of topics that the word is belonged to.
+    feature_DF <- length(which(dataframe_dtm2[,x] != 0))
+    IDF <- dtm2_row / feature_DF
+    idf <- log2(IDF)
+    
+    #calculate TF for each feature and normalize each TF
+    feature_TF <- dataframe_dtm2[y,x]
+    feature_max <- max(dataframe_dtm2[,x])
+    tf <- feature_TF / feature_max
+    
+    #calculate TF*IDF of each feature
+    TFIDF <- tf * idf
+    tf.idf[y,x] <- TFIDF
+  }
+  print(x)
+}
+tf.idf <- as.data.frame(tf.idf)
+colnames(tf.idf) <- colnames(dataframe_dtm2)
+write.csv(tf.idf, "task2.TFIDF.csv", row.names = F)
+############################################3
+#discard 50% of the features in tf.idf
+sum_col<-c()
+for( i in 1: 196){
+  sum_col<-c(sum_col,sum(tf.idf[,i]))
+}
+sum_col_order<-order(sum_col, decreasing = T)
+sum_col_del<-sum_col_order[99:196]
+tf.idf_new<-tf.idf[,-sum_col_del]
+###################################
+for (l in 1:10412){
+  for(k in 1:98){
+    if(tf.idf_new[l,k ] != 0){
+      tf.idf_new[l,k ] <- 1
+    }
+#     else{sum_col_del[l, ] <- 1}
+  }
+  print(l)
+}
+write.csv(tf.idf_new, "task2.TFIDF.del.csv", row.names = F)
+###################################################################
+#combine data set features_lda and tf.idf_new
+colname_combine<-c(colnames(features_lda),colnames(tf.idf_new))
+colname_u<-unique(colname_combine)
+data_combined<-as.data.frame(matrix(0,10412,length(colname_u)))
+colnames(data_combined)<-colname_u
+CombineColName<-colnames(data_combined)
+
+
+for( h in 1:10412){
+  colcol<-colnames(tf.idf_new)[which(tf.idf_new[h,] == 1)]
+  colcolLDA<-colnames(features_lda)[which(features_lda[h,] == 1)]
+  match.spot.feature <- match(CombineColName, colcol, nomatch = 0) != 0
+  match.spot.lda<- match(CombineColName, colcolLDA, nomatch = 0) != 0 
+  data_combined[h,match.spot.feature]<-1
+  data_combined[h,match.spot.lda]<-1
+  print(h)
+}
+data_combined <- as.data.frame(data_combined)
+
+write.csv(data_combined, "task2.combine.csv", row.names = F)
