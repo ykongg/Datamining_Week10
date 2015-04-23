@@ -1,0 +1,118 @@
+
+install.packages("tm");
+install.packages("NLP");
+install.packages("openNLP");
+install.packages("SnowballC");
+install.packages("koRpus");
+install.packages("http://datacube.wu.ac.at/src/contrib/openNLPmodels.en_1.5-1.tar.gz", repos=NULL, type = "source");
+install.packages("topicmodels");
+
+library("topicmodels");
+library("openNLPmodels.en");
+library("NLP");
+library("tm");
+library("openNLP");
+#library("SnowballC");
+library("koRpus");
+###########################################################
+
+reuters = read.csv("reuters.csv", header = TRUE);
+
+#Remove the topics which no docs under them and remove the instances do not belong to any topics
+x = 0;
+for (i in 1:nrow(reuters)){
+  x[i] = sum(reuters[i,4:138]);
+}
+reuters = reuters[-which(x == 0),];
+y = 0;
+for (j in 4:138){
+  y[j] = sum(reuters[1:nrow(reuters),j]);
+}
+reuters = reuters[,-which(y == 0)];
+###########################################################
+sent_token_annotator = Maxent_Sent_Token_Annotator();
+word_token_annotator = Maxent_Word_Token_Annotator();
+pos_tag_annotator = Maxent_POS_Tag_Annotator();
+money_entity_annotator = Maxent_Entity_Annotator(kind = "money");
+percentage_entity_annotator = Maxent_Entity_Annotator(kind = "percentage");
+person_entity_annotator = Maxent_Entity_Annotator(kind = "person");
+location_entity_annotator = Maxent_Entity_Annotator(kind = "location");
+organization_entity_annotator = Maxent_Entity_Annotator(kind = "organization");
+date_entity_annotator = Maxent_Entity_Annotator(kind = "date");
+#add two columns into reuters to save the newly generated title and text 
+reuters[,"title_new"] = NA;
+reuters[,"text_new"] = NA;
+###########################################################
+#preprocessing
+for(k in 1:nrow(reuters))
+#for testing
+#for(k in 1:2){
+#delete NA in doc.text
+if(reuters[k,123] != ""){
+    print(k);
+###########################################################
+#tokenize:
+data_t = as.String(c(as.String(reuters[k,122]), as.String(reuters[k,123])));
+text = data;
+text<-scan_tokenizer(text)
+text = gsub("/", " ", text);
+
+###########################################################    
+#Remove punctuation, :
+text = removePunctuation(text);
+text_combine = paste(text, collapse = " ")
+ ###########################################################   
+#POS tagging:
+annotation = annotate(text_combine, list(sent_token_annotator, word_token_annotator));
+annotation1 = annotate(text_combine, pos_tag_annotator, annotation);
+##discard the first row of data which type == sentence
+a1_word = subset(annotation1, type == "word");
+#delete “pos =” 
+tags = sapply(a1_word$features, "[[", "POS");
+###########################################################   
+#Lemmatisation:
+results_tag = treetag(text_combine, treetagger="manual", format="obj",
+                             TT.tknz=FALSE , lang="en",
+                             TT.options=list(path="./TreeTagger", preset="en"))
+#Get the column of the results of lemmatization from results_tag
+lemmatisation = results_tag@TT.res$lemma;
+#roll back the '<unknown>' and '@card@' to their original value
+text[which(lemmatisation != "<unknown>" & lemmatisation != "@card@")] = lemmatisation[which(lemmatisation != "<unknown>" & lemmatisation != "@card@")];
+###########################################################    
+#Remove stop words:
+if(length(which(tags == "PRP" | tags == "IN" | tags == "TO" | tags == "MD" | tags == "DT" | tags == "CC" | tags == "WDT" | tags == "VBP" | tags == "PRP$")) !=0){
+      text = text[-which(tags == "PRP" | tags == "IN" | tags == "TO" | tags == "MD" | tags == "DT" | tags == "CC" | tags == "WDT" | tags == "VBP" | tags == "PRP$")];
+    }
+ ###########################################################   
+#Run Named Entity recogniser:
+    
+entity1 = annotate(text, list(sent_token_annotator, 
+                              word_token_annotator,
+                              person_entity_annotator,
+                              location_entity_annotator,
+                              organization_entity_annotator,
+                              date_entity_annotator,
+                              money_entity_annotator,
+                              percentage_entity_annotator));
+entity2 = subset(entity1, type == "entity");
+if(length(entity2) !=0){
+#discard'kind=' in the features column to keep entities only
+entities = sapply(entity2$features, "[[", "kind");
+# change the words to upper class
+entities = toupper(entities);
+temp = as.String(text);
+for(i in 1:length(entities)){
+        text = gsub(temp[entity2[i]], entities[i], text);
+      }
+    }
+#replace all the numbers with 'NUM'
+text = gsub("[[:digit:]]+", "NUM", text);
+    
+text = as.String(text);
+#delete ',' in the text
+text = gsub(",", "", text);
+text = as.character(text);
+reuters[k,125] = text;
+  }
+}
+write.csv(reuters, "reuters.task1.csv", row.names = F);
